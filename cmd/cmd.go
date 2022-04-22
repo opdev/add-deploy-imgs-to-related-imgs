@@ -69,8 +69,14 @@ func Run() int {
 		return 30
 	}
 
-	// Grab the container images in the deployment spec and add them to the related images struct.
-	containersInCSV := map[string]string{}
+	// build a map of existing related images
+	relatedImagesMap := map[string]string{}
+	for _, ri := range csv.Spec.RelatedImages {
+		relatedImagesMap[ri.Name] = ri.Image
+	}
+
+	// Grab the container images in the deployment spec and add them as well. Replace any
+	// duplicate names.
 	for _, deploymentSpec := range csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs {
 		for _, container := range deploymentSpec.Spec.Template.Spec.Containers {
 			// TODO: handle this error.
@@ -86,18 +92,25 @@ func Run() int {
 			if len(split) > 1 {
 				imageKey = split[1]
 			}
-			containersInCSV[imageKey] = container.Image
+			relatedImagesMap[imageKey] = container.Image
 			// TODO: Does it make sense to expand fat manifests and add them
 			// to related images? What value would we store in RelatedImage.Name?
 		}
 	}
 
-	for name, image := range containersInCSV {
-		csv.Spec.RelatedImages = append(csv.Spec.RelatedImages, operatorsv1alpha1.RelatedImage{
+	// reconstruct it as a slice
+	newRelatedImages := make([]operatorsv1alpha1.RelatedImage, len(relatedImagesMap))
+	var pos int
+	for name, image := range relatedImagesMap {
+		newRelatedImages[pos] = operatorsv1alpha1.RelatedImage{
 			Name:  name,
 			Image: image,
-		})
+		}
+		pos += 1
 	}
+
+	// replace the value
+	csv.Spec.RelatedImages = newRelatedImages
 
 	replacer := replacers.InPlaceRelatedImagesReplacer{
 		OriginalCSVBytes: bts,
